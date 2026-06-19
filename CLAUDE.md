@@ -7,13 +7,13 @@ Interaktivní webová aplikace pro seminář o AI pro studenty 1. ročníku LF U
 Studenti na vlastní kůži zažijí, že **AI model je jen tak dobrý jako data, na kterých byl naučen** (*garbage in, garbage out*).
 
 **Flow semináře (~20 minut na skupinu):**
-1. Přihlášení heslem skupiny
-2. Stažení dvou trénovacích datasetů (A a B) — oba vypadají stejně, jeden má náhodně přeházené štítky
-3. Natrénování modelu na jednom datasetu — živá konzole + graf ztráty (~1–2 min)
-4. Krok 3 fáze 1: prohlídka testovacích pacientů → kliknutí "Předhodit" → živá konzole + graf
+1. Přihlášení heslem skupiny (Enter nebo kliknutí, znaky viditelné)
+2. Krok 1: prohlídka čtyř datasetů (A–D) přímo v záložkách — všechny vypadají stejně
+3. Krok 2: trénink modelu na zvoleném datasetu — živá konzole + graf ztráty (~2–3 min, běží na pozadí)
+4. Krok 3 fáze 1: prohlídka testovacích pacientů → kliknutí "Předhodit" → živá konzole + graf (~30 s)
 5. Krok 3 fáze 2: data a tlačítko zmizí, zůstane konzole + graf + tabulka predikcí
-6. Totéž s druhým datasetem
-7. Krok 4: porovnání → odhalení správné odpovědi
+6. Opakovat pro všechny 4 datasety
+7. Krok 4: průběžné porovnání od 2 modelů, plná odpověď po otestování všech 4
 
 ## Spuštění
 
@@ -34,8 +34,10 @@ prepare_data.py     — stáhne/připraví datasety, augmentuje na 3000 řádků
 ml/trainer.py       — preprocess() + build_mlp()
 .streamlit/config.toml  — server na 0.0.0.0, enableCORS=false, headless=true
 data/group{1-6}/
-    dataset_A.csv   — trénovací data (správná nebo přeházená, dle correct_dataset)
-    dataset_B.csv   — trénovací data (opačná)
+    dataset_A.csv   — trénovací data
+    dataset_B.csv   — trénovací data
+    dataset_C.csv   — trénovací data
+    dataset_D.csv   — trénovací data
     test.csv        — testovací data (se štítky, server-side only)
 ```
 
@@ -43,20 +45,28 @@ data/group{1-6}/
 
 | Skupina | Téma | Heslo | Správný dataset | Zdroj |
 |---------|------|-------|-----------------|-------|
-| 1 | Diagnostika srdeční choroby | `srdce` | **B** | UCI Heart Disease (id=45) |
-| 2 | Diagnostika diabetu | `cukr` | **A** | Pima Indians Diabetes (id=34) |
-| 3 | Diagnostika rakoviny prsu | `prsa` | **A** | sklearn breast_cancer |
+| 1 | Diagnostika srdeční choroby | `srdce` | **C** | UCI Heart Disease (id=45) |
+| 2 | Diagnostika diabetu | `cukr` | **D** | Pima Indians Diabetes (id=34) |
+| 3 | Diagnostika rakoviny prsu | `prsa` | **B** | sklearn breast_cancer |
 | 4 | Prognóza přežití po srdečním selhání | `infarkt` | **A** | UCI Heart Failure (id=519) |
-| 5 | Prognóza readmise do nemocnice | `nemocnice` | **A** | syntetická data |
-| 6 | Prognóza těžkého průběhu sepse | `sepse` | **B** | syntetická data |
+| 5 | Prognóza readmise do nemocnice | `nemocnice` | **D** | syntetická data |
+| 6 | Prognóza těžkého průběhu sepse | `sepse` | **C** | syntetická data |
 
-Vzor B,A,A,A,A,B — záměrně nepravidelný, aby si skupiny nemohly poradit.
+Vzor C,D,B,A,D,C — záměrně nepravidelný, žádné dvě sousední skupiny nemají stejný správný dataset.
 
-Admin heslo: `YouShallNotPass` (zobrazí přehled skupin s tlačítkem přímého přihlášení)
+Každá skupina má 4 trénovací datasety (A–D). Jeden je správný, ostatní tři jsou pokazeny různými metodami — pořadí korupcí se liší skupinu od skupiny (definováno v `_CORRUPTION_ORDER` v `prepare_data.py`):
 
-## Mechanismus "špatného" datasetu
+| Typ korupce | Popis |
+|------------|-------|
+| Přeházené štítky | `shuffle` — náhodné pořadí štítků → model se nic nenaučí (~50 % přesnost) |
+| Invertované štítky | `1 - label` — každý štítek překlopený → model se naučí opak (~0–30 % přesnost) |
+| Částečná korupce | 30 % štítků náhodně překlopeno → model se naučí jen část (~60–70 % přesnost) |
 
-`prepare_data.py` náhodně přeháže (`shuffle`) sloupec s cílovými štítky v trénovacích datech. Model trénovaný na takovém datasetu se nenaučí žádné smysluplné vzory — přesnost ~50 % oproti 75–90 % u správného datasetu.
+Admin heslo: `YouShallNotPass` — admin tabulka zobrazuje hesla, správné datasety a tlačítko **Vstoupit** pro přímé přihlášení do libovolné skupiny bez zadání hesla.
+
+## Mechanismus "špatných" datasetů
+
+`prepare_data.py` generuje 4 trénovací datasety — jeden správný a tři pokazené různými metodami (`shuffle_labels`, `invert_labels`, `partial_shuffle_labels`). Pořadí korupcí pro každou skupinu je pevně dáno v `_CORRUPTION_ORDER` (různé pro každou skupinu, aby si skupiny nemohly poradit).
 
 ## Datové soubory
 
@@ -69,12 +79,14 @@ mlp:
   hidden_layer_sizes: [128, 64, 32]
   max_iter: 400
   n_iter_no_change: 60   # early stopping — čeká 60 průchodů bez zlepšení
-  epoch_delay: 0.3       # sleep 0.3s/průchod → trénink trvá ~1–2 minuty
+  epoch_delay: 0.5       # sleep 0.5s/průchod → trénink trvá ~2–3 minuty
+  predict_delay: 1.2     # sleep 1.2s/dávku → zpracování testovacích dat ~30 s
+  predict_batches: 25    # počet dávek; velikost dávky = n_test // predict_batches
   early_stopping: true
   validation_fraction: 0.15
 ```
 
-`epoch_delay` je klíčový pro pedagogický efekt — bez něj by trénink trval <10 s.
+`epoch_delay` je klíčový pro pedagogický efekt — bez něj by trénink trval <10 s. Implementováno jako `time.sleep(epoch_delay)` na konci každé epochy v `_training_worker()` v `app.py`. Podobně `predict_delay` zpomaluje zpracování testovacích dat v `predict_with_progress()`.
 
 ## Klíčové implementační detaily
 
@@ -82,35 +94,39 @@ mlp:
 
 #### Background trénink (threading + st.fragment)
 
-- **`_get_jobs()` / `_get_lock()`** — `@st.cache_resource` funkce vracející sdílený dict a threading.Lock. **Kritické:** modul-level `dict = {}` se při každém `st.rerun()` resetuje (Streamlit re-spouští celý skript). `@st.cache_resource` vrací vždy stejnou instanci, takže background thread zapisuje a main thread čte přes reruns. Klíč jobu: `{session_id}_{ds}`.
+- **`_get_jobs()` / `_get_lock()`** — `@st.cache_resource` funkce vracející sdílený dict a threading.Lock. **Kritické:** modul-level `dict = {}` se při každém `st.rerun()` resetuje (Streamlit re-spouští celý skript). `@st.cache_resource` vrací vždy stejnou instanci přes reruns. Klíč jobu: `{session_id}_{ds}`.
 - **`get_session_id()`** — vrátí Streamlit session ID ze `ScriptRunContext`.
-- **`_training_worker(...)`** — běží v daemonic threadu. Každý průchod aktualizuje `_TRAINING_JOBS[job_key]` (epoch, loss, history, log_lines). Po dokončení přidá mlp, výsledky a nastaví `done=True`.
-- **`run_training(ds, ...)`** — preprocessuje data (s spinner), vytvoří job v `_TRAINING_JOBS`, uloží `training_job_{ds}` do session_state, spustí daemon thread.
-- **`_collect_done_jobs()`** — volaná na začátku každého `render_dashboard()`. Pokud je job `done`, přesune model do `session_state` a vyčistí job i klíč.
-- **`@st.fragment(run_every="0.5s") show_training_fragment(ds)`** — fragment se sám aktualizuje každých 0.5s, čte z `_TRAINING_JOBS`, zobrazuje konzoli + graf + progress bar. Když zachytí `done=True`, zavolá `st.rerun()` (full rerun) → `_collect_done_jobs` přesune model → Krok 3 se zobrazí.
-- Při přepnutí datasetu fragment zaniká, trénink pokračuje v threadu. Indikátor `⏳ Dataset X se trénuje na pozadí` informuje o probíhajícím background tréninku.
+- **`_training_worker(job_key, run_id, ...)`** — běží v daemonic threadu. Před každým zápisem volá `still_mine()` — ověří, že `_get_jobs()[job_key]["run_id"] == run_id` a `cancelled == False`. Pokud ne (byl spuštěn nový trénink), vlákno se tiše ukončí. Zabraňuje skoků epoch při souběžných vlákna se stejným klíčem.
+- **`run_training(ds, ...)`** — před startem zruší starý job se stejným klíčem (`cancelled=True`), vygeneruje `run_id = uuid4()`, vytvoří nový job dict s `run_id`, uloží `training_job_{ds}` do session_state, spustí daemon thread.
+- **`_collect_done_jobs()`** — volaná na začátku každého `render_dashboard()` pro všechna A–D. Pokud je job `done`, přesune model do `session_state` a vyčistí job i klíč.
+- **`@st.fragment(run_every="0.5s") show_training_fragment(ds)`** — polluje `_get_jobs()` každých 0.5s, zobrazuje konzoli + graf + progress bar. Když zachytí `done=True`, zavolá `st.rerun()` → `_collect_done_jobs` přesune model → Krok 3 se zobrazí.
+- Při přepnutí datasetu fragment zaniká, trénink pokračuje v threadu. Indikátor `⏳ Trénují se na pozadí: Dataset X (průchod Y/400)` informuje o všech aktivních background trénincích.
 
 #### Ostatní funkce
 
 - **`EXPLANATION_TEXT`** — konstanta s vysvětlením pojmů; sdílená mezi fragmentem a statickým zobrazením po rerun.
-- **`fixed_log(lines)`** — padduje log na `LOG_HEIGHT=16` řádků, blok nemění výšku.
-- **`predict_with_progress(model_data, group, result_key)`** — batch predikce (25 dávek), živá konzole + graf % pozitivních predikcí. Ukládá `log_lines` a `pos_history` do `st.session_state[result_key]` pro zobrazení po rerun.
-- **`render_krok3(trained_ds, group, neg_label, pos_label)`** — dvě fáze:
+- **`fixed_log(lines)`** — padduje log na `LOG_HEIGHT=16` řádků, blok nemění výšku při tréninku.
+- **`predict_with_progress(model_data, group, result_key, mlp_cfg)`** — batch predikce (25 dávek × `predict_delay`), živá konzole + graf % pozitivních predikcí. Ukládá `log_lines` a `pos_history` do `st.session_state[result_key]` pro zobrazení po rerun.
+- **`render_krok3(trained_ds, group, neg_label, pos_label, mlp_cfg)`** — dvě fáze:
   - **Fáze 1** (`result_key` není v session_state): tabulka testovacích dat + tlačítko "Předhodit"
   - **Fáze 2** (`result_key` v session_state): data a tlačítko zmizí, zůstane konzole + graf + tabulka predikcí
-  - Zobrazuje se pouze pro aktuálně vybraný dataset (přepnutím se skryje, přepnutím zpět obnoví).
+  - Zobrazuje se pouze pro aktuálně vybraný dataset.
+- **`plot_comparison(results: dict, baseline: float)`** — přijímá `{letter: accuracy}` a přidá červenou přerušovanou čáru "Náhodný model" na úrovni `baseline`. Barevně zvýrazní nejlepší model.
+- **`majority_baseline(cm)`** — z matice záměn spočítá přesnost naivního modelu vždy predikujícího většinovou třídu: `max(actual_neg, actual_pos) / total`.
 - **`translate_cols(df, group)`** — přejmenuje sloupce dle `column_labels` v settings.yaml.
 - **`build_table(records, group, show_true)`** — sestaví tabulku predikcí; `show_true` odhalí sloupec "Správná diagnóza".
+- **`render_admin(settings)`** — tabulka skupin s tlačítkem **Vstoupit** pro přímé přihlášení do skupiny bez zadání hesla. Kliknutí nastaví `group_id`/`group` do session_state a smaže `is_admin`.
 
-### Terminologie v UI
+### UI detaily
 
-- "Epocha" → **"Průchod"** (srozumitelnější pro mediky)
-- Konzole zobrazuje: `✓ Konvergováno v průchodu N.`
-- Vysvětlivky (průchod, ztráta, přesnost, konvergováno) v konstantě `EXPLANATION_TEXT`
+- **Přihlášení**: `st.form("login_form")` + `st.form_submit_button` — Enter i kliknutí fungují. `st.text_input` bez `type="password"` — znaky viditelné, prohlížeč nenabídne uložení.
+- **Terminologie**: "Epocha" → **"Průchod"**, konzole zobrazuje `✓ Konvergováno v průchodu N.`
+- **Krok 1**: čtyři záložky (A–D) s prvními 15 řádky, bez tlačítek ke stažení. Expander **ℹ️ Popis proměnných** zobrazí klinické vysvětlení ze `column_descriptions` v `settings.yaml`.
+- **Krok 4**: průběžné porovnání od 2 modelů. `plot_comparison(results, baseline)` přidá červenou čáru "Náhodný model" (`majority_baseline(cm)`). Plná odpověď až po 4 modelech.
 
 ### Plotly grafy — unikátní klíče
 
-Všechny `st.plotly_chart()` mají explicitní `key=`. Grafy v smyčkách (trénink, predikce) dostávají `key=str(uuid.uuid4())` — bez toho hází `StreamlitDuplicateElementKey`. Statické grafy (po rerun) mají fixní klíče: `f"train_saved_{ds}"`, `f"pred_saved_{trained_ds}"`, `"comparison"`, `f"cm_{trained_ds}"`.
+Grafy v smyčkách dostávají `key=str(uuid.uuid4())` — bez toho hází `StreamlitDuplicateElementKey`. Statické grafy mají fixní klíče: `f"train_saved_{ds}"`, `f"pred_saved_{trained_ds}"`, `"comparison"`, `f"cm_{trained_ds}"`.
 
 ### trainer.py — funkce
 
@@ -122,21 +138,26 @@ build_mlp(mlp_cfg)
     → MLPClassifier(warm_start=True, max_iter=1, ...)  # pro epochový loop v threadu
 ```
 
-Predikce i tréninkový loop probíhají v `app.py` kvůli live UI updatům (trénink v background threadu, predikce synchronně s placeholdery).
+Predikce i tréninkový loop probíhají v `app.py`. Trénink v background threadu, predikce synchronně s placeholdery.
 
 ### Požadovaná verze Streamlit
 
 `streamlit>=1.37.0` — nutné pro `@st.fragment(run_every=...)`. Uvedeno v `requirements.txt`.
 
+### Streamlit API konvence
+
+`width='stretch'` místo `use_container_width=True`, `width='content'` místo `use_container_width=False`.
+
 ### Překlady sloupců
 
-Každá skupina má v `settings.yaml` klíč `column_labels` — slovník `{anglický_název: český_název_s_jednotkou}`. Překlady se aplikují v: náhledu datasetů, tabulce testovacích pacientů, tabulce predikcí. CSV soubory ke stažení ponechávají původní anglické názvy.
+Každá skupina má v `settings.yaml` klíč `column_labels` — slovník `{anglický_název: český_název_s_jednotkou}`. Překlady se aplikují v: náhledu datasetů (Krok 1), tabulce testovacích pacientů, tabulce predikcí.
 
 ### Opravené bugy
 
-- **Přerušení tréninku při přepnutí datasetu**: trénink nyní běží v background threadu, `st.rerun()` ho nepřeruší. Fragment `show_training_fragment` polluje výsledky každých 0.5s.
-- **Tlačítko zmizí a nic se neděje**: modul-level `_TRAINING_JOBS = {}` se resetoval při každém `st.rerun()`. Oprava: `@st.cache_resource` na `_get_jobs()` a `_get_lock()`.
-- **Mizející Krok 3**: `render_krok3()` volaná pro aktuálně vybraný `ds`; výsledky v session_state se obnoví při přepnutí zpět.
+- **Přerušení tréninku při přepnutí datasetu**: trénink běží v background threadu, `st.rerun()` ho nepřeruší.
+- **Tlačítko "Natrénovat" zmizí a nic se neděje**: modul-level `dict = {}` se resetoval při každém `st.rerun()`. Oprava: `@st.cache_resource` na `_get_jobs()` a `_get_lock()`.
+- **Epochy skáčou zpět (~80 průchodů)**: souběžná vlákna se stejným `job_key` závodila o zápis. Oprava: `run_id` (UUID) přiřazený každému spuštění; worker se ukončí, pokud `run_id` nesedí (`still_mine()`).
+- **Mizející Krok 3**: výsledky v session_state přežijí přepnutí datasetu a zobrazí se zpět.
 - **StreamlitDuplicateElementKey**: grafy v smyčkách dostávají `key=str(uuid.uuid4())`.
 - **WebSocket rejected**: `enableCORS = false` v `.streamlit/config.toml`.
 
@@ -154,30 +175,46 @@ serverAddress = "biofyzika.valdauf.eu"
 serverPort = 443
 ```
 
-## Přihlašovací pole
+## Reset a UX detaily
 
-`st.text_input` bez `type="password"` — znaky jsou viditelné, prohlížeč nerozpozná pole jako heslo a nenabídne uložení.
+- **Tlačítko "Začít znovu"** v sidebaru — smaže pouze tréninkové výsledky (`model_*`, `results_*`, `training_job_*`, `show_true_*`, `dataset_choice`), zachová přihlášení. Užitečné pokud student klikne špatně.
+- **Varování v sidebaru**: `⚠️ Obnovení stránky (F5) smaže výsledky.`
+- **Legenda matice záměn**: pod každou maticí je `st.caption` vysvětlující SP/SN/FP/FN v kontextu konkrétní diagnózy skupiny.
+- **TTL cleanup jobů**: `_collect_done_jobs()` maže joby starší 30 minut (`created_at` uložen při startu jobu). Brání hromadění dat z disconnectnutých sessionů.
+
+## Logování přístupů
+
+`access.log` v kořenovém adresáři projektu. `RotatingFileHandler` — max 1 MB, 3 zálohy. Logger `"seminar"` inicializován jednou přes `_setup_logger()` (guard `if log.handlers`).
+
+Výstup jde současně do souboru (`access.log`) i do konzole kde běží Streamlit. Pro potlačení konzole stačí odebrat `log.addHandler(ch)` v `_setup_logger()`.
+
+Logované události:
+```
+LOGIN  skupina=1  Diagnostika srdeční choroby   # úspěšné přihlášení skupiny
+LOGIN  admin                                    # přihlášení admina
+LOGIN  FAIL                                     # nesprávné heslo
+TRÉNINK  skupina=1  dataset=C                   # spuštění tréninku
+TRÉNINK HOTOV  job=…_C  průchodů=187  přesnost=84.2%  # dokončení (z workeru)
+PREDIKCE  key=results_c  přesnost=81.3%         # předhození testovacích dat
+```
 
 ## Patička
 
-`render_footer()` volaná z `main()` — zobrazí se na všech stránkách (login, dashboard, admin). Implementována jako **sticky CSS** (`position: fixed; bottom: 0`), takže je vždy viditelná bez ohledu na délku stránky nebo fázi tréninku. Používá `unsafe_allow_html=True`.
+`render_footer()` volaná z `main()` — sticky CSS (`position: fixed; bottom: 0`), viditelná na všech stránkách.
 
-```
-Jaroslav Valdauf · 3. LF UK · 2026
-```
+## Fixní výška konzole
 
-## Fixní výška konzole (LOG_HEIGHT)
-
-Konstanta `LOG_HEIGHT = 16` (řádků). Pomocná funkce `fixed_log(lines)` padduje log na vždy stejný počet řádků — blok `st.code()` nemění výšku při tréninku, stránka neposkakuje. Používá se ve všech `log_ph.code(...)` voláních v `run_training()` i `predict_with_progress()`.
+`LOG_HEIGHT = 16` řádků. `fixed_log(lines)` padduje log na konstantní výšku — blok `st.code()` nemění výšku při tréninku, stránka neposkakuje. `progress_ph` umístěn **pod** sloupci (ne nad nimi) ze stejného důvodu.
 
 ## Známé limitace
 
-- **Scrollování při tréninku**: `progress_ph` je umístěn **pod** sloupci s konzolí a grafem, aby jeho updaty neposouvaly obsah výše. Fixní výška logu (`LOG_HEIGHT`) zabraňuje růstu bloku. Úplné odstranění problému by vyžadovalo přechod na jiný framework.
+- **Scrollování při tréninku**: Streamlit re-renderuje celou stránku při každém updatu fragmentu. Zmírněno fixní výškou logu a umístěním progress baru pod sloupce. Úplné odstranění by vyžadovalo jiný framework.
 
 ## Možná vylepšení (neimplementováno)
 
 - Zobrazení ROC křivky pro každý model
 - Export výsledků do PDF/CSV pro vyučujícího
 - Časový limit na seminář (countdown timer)
-- Možnost učitele resetovat session všech skupin najednou
-- Více vizualizací dat v Kroku 1 (distribuce proměnných, korelační matice)
+- Možnost učitele resetovat session všech skupin najednou (aktuálně jen per-student "Začít znovu")
+- Distribuce proměnných / korelační matice v Kroku 1
+- Diskusní otázky po odhalení odpovědi (záměrně vynecháno — seminář si vede vyučující)

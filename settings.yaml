@@ -10,7 +10,7 @@ groups:
       cholesterol, tepová frekvence...). Natrénujte model na každém datasetu,
       předložte mu testovací pacienty a zjistěte, který model dává smysluplné předpovědi.
     target_column: "target"
-    correct_dataset: "B"
+    correct_dataset: "C"
     positive_label: "S chorobou"
     negative_label: "Bez choroby"
     display_columns: ["age", "sex", "cp", "trestbps", "chol", "thalach", "exang"]
@@ -20,9 +20,23 @@ groups:
       cp: "Typ bolesti na hrudi (1–4)"
       trestbps: "Klidový TK (mmHg)"
       chol: "Cholesterol (mg/dl)"
+      fbs: "Glykémie nalačno >120 mg/dl"
+      restecg: "Klidové EKG (0–2)"
       thalach: "Max. tepová frekvence"
       exang: "Angina při zátěži"
+      oldpeak: "Pokles ST při zátěži (mm)"
+      slope: "Sklon ST segmentu (1–3)"
+      ca: "Počet barvených cév (0–3)"
+      thal: "Thalassémie (3/6/7)"
       target: "Srdeční choroba"
+    column_descriptions:
+      age: "Věk pacienta v letech"
+      sex: "Pohlaví: 0 = žena, 1 = muž"
+      cp: "Typ bolesti na hrudi: 1 = typická angina pectoris, 2 = atypická angina, 3 = neangionózní bolest, 4 = asymptomatický"
+      trestbps: "Klidový krevní tlak při přijetí (mmHg)"
+      chol: "Sérový cholesterol (mg/dl)"
+      thalach: "Maximální dosažená tepová frekvence při zátěžovém testu (tepů/min)"
+      exang: "Angina vyvolaná námahou: 0 = ne, 1 = ano"
 
   2:
     name: "Skupina 2"
@@ -33,19 +47,27 @@ groups:
       krevní tlak, věk...). Natrénujte model na každém datasetu, předložte mu
       testovací pacientky a zjistěte, který model dává smysluplné předpovědi.
     target_column: "Outcome"
-    correct_dataset: "A"
+    correct_dataset: "D"
     positive_label: "Diabetes"
     negative_label: "Bez diabetu"
     display_columns: ["Age", "Glucose", "BMI", "BloodPressure", "Insulin", "Pregnancies"]
     column_labels:
-      Age: "Věk"
-      Glucose: "Glukóza (mg/dl)"
-      BMI: "BMI"
-      BloodPressure: "Diastolický TK (mmHg)"
-      Insulin: "Inzulin (μU/ml)"
       Pregnancies: "Počet těhotenství"
+      Glucose: "Glukóza (mg/dl)"
+      BloodPressure: "Diastolický TK (mmHg)"
+      SkinThickness: "Tloušťka kožní řasy (mm)"
+      Insulin: "Inzulin (μU/ml)"
+      BMI: "BMI"
       DiabetesPedigreeFunction: "Dědičné riziko"
+      Age: "Věk"
       Outcome: "Diabetes"
+    column_descriptions:
+      Age: "Věk pacientky v letech"
+      Glucose: "Koncentrace glukózy v plazmě 2 hodiny po orálním glukózovém tolerančním testu (mg/dl)"
+      BMI: "Index tělesné hmotnosti: hmotnost / výška² (kg/m²)"
+      BloodPressure: "Diastolický krevní tlak (mmHg)"
+      Insulin: "2-hodinová hladina inzulinu v séru (μU/ml)"
+      Pregnancies: "Celkový počet těhotenství"
 
   3:
     name: "Skupina 3"
@@ -56,19 +78,48 @@ groups:
       obvod, plocha, hladkost...). Natrénujte model na každém datasetu,
       předložte mu testovací vzorky a zjistěte, který model dává smysluplné předpovědi.
     target_column: "diagnosis"
-    correct_dataset: "A"
+    correct_dataset: "B"
     positive_label: "Maligní"
     negative_label: "Benigní"
     display_columns: ["mean radius", "mean texture", "mean perimeter", "mean area", "mean smoothness"]
     column_labels:
-      "mean radius": "Průměrný poloměr (mm)"
-      "mean texture": "Průměrná textura"
-      "mean perimeter": "Průměrný obvod (mm)"
-      "mean area": "Průměrná plocha (mm²)"
-      "mean smoothness": "Průměrná hladkost"
-      "mean compactness": "Kompaktnost"
-      "mean concavity": "Konkavita"
+      "mean radius": "Střední poloměr (mm)"
+      "mean texture": "Střední textura"
+      "mean perimeter": "Střední obvod (mm)"
+      "mean area": "Střední plocha (mm²)"
+      "mean smoothness": "Střední hladkost"
+      "mean compactness": "Střední kompaktnost"
+      "mean concavity": "Střední konkavita"
+      "mean concave points": "Střední konkávní body"
+      "mean symmetry": "Střední symetrie"
+      "mean fractal dimension": "Střední fraktální dimenze"
+      "radius error": "Chyba poloměru"
+      "texture error": "Chyba textury"
+      "perimeter error": "Chyba obvodu"
+      "area error": "Chyba plochy"
+      "smoothness error": "Chyba hladkosti"
+      "compactness error": "Chyba kompaktnosti"
+      "concavity error": "Chyba konkavity"
+      "concave points error": "Chyba konkávních bodů"
+      "symmetry error": "Chyba symetrie"
+      "fractal dimension error": "Chyba fraktální dimenze"
+      "worst radius": "Max. poloměr (mm)"
+      "worst texture": "Max. textura"
+      "worst perimeter": "Max. obvod (mm)"
+      "worst area": "Max. plocha (mm²)"
+      "worst smoothness": "Max. nehladkost"
+      "worst compactness": "Max. nekompaktnost"
+      "worst concavity": "Max. konkavita"
+      "worst concave points": "Max. konkávní body"
+      "worst symmetry": "Max. asymetrie"
+      "worst fractal dimension": "Max. fraktální dimenze"
       diagnosis: "Diagnóza"
+    column_descriptions:
+      "mean radius": "Průměrný poloměr buněk nádoru (mm) — měřeno z digitalizované biopsie"
+      "mean texture": "Průměrná textura: směrodatná odchylka hodnot šedi v buňkách"
+      "mean perimeter": "Průměrný obvod buněk nádoru (mm)"
+      "mean area": "Průměrná plocha buněk nádoru (mm²)"
+      "mean smoothness": "Hladkost povrchu: lokální odchylka délky poloměru buněk"
 
   4:
     name: "Skupina 4"
@@ -97,6 +148,13 @@ groups:
       sex: "Pohlaví"
       smoking: "Kuřák"
       DEATH_EVENT: "Exitus"
+    column_descriptions:
+      age: "Věk pacienta v letech"
+      ejection_fraction: "Ejekční frakce levé komory — podíl krve vypuzeného srdcem při každém stahu (%). Normální hodnota ≥ 55 %."
+      serum_creatinine: "Sérový kreatinin (mg/dl) — ukazatel funkce ledvin. Zvýšená hodnota = porucha filtrace."
+      serum_sodium: "Sérový sodík (mEq/l). Nízká hodnota (hyponatrémie) je nepříznivým prognostickým znakem."
+      time: "Délka sledování pacienta po propuštění (dny)"
+      diabetes: "Přítomnost diabetes mellitus: 0 = ne, 1 = ano"
 
   5:
     name: "Skupina 5"
@@ -107,7 +165,7 @@ groups:
       HbA1c, počet urgentních příjmů, glukóza, kreatinin...). Natrénujte model na každém
       datasetu a zjistěte, který model lépe predikuje readmisi do 30 dnů.
     target_column: "readmitted_30"
-    correct_dataset: "A"
+    correct_dataset: "D"
     positive_label: "Readmitován"
     negative_label: "Nereadmitován"
     display_columns: ["vek", "delka_hospitalizace", "HbA1c", "pocet_urgentni_prijmu", "glukoza", "BMI"]
@@ -122,6 +180,13 @@ groups:
       pocet_diagnoz: "Počet diagnóz"
       kreatinin: "Kreatinin (mg/dl)"
       readmitted_30: "Readmise do 30 dní"
+    column_descriptions:
+      vek: "Věk pacienta v letech"
+      delka_hospitalizace: "Délka poslední hospitalizace (dny)"
+      HbA1c: "Glykovaný hemoglobin (%) — ukazatel dlouhodobé kompenzace diabetu. Hodnota > 7 % = špatná kompenzace."
+      pocet_urgentni_prijmu: "Počet urgentních příjmů za poslední rok — ukazatel nestability stavu"
+      glukoza: "Glukóza při přijetí (mg/dl)"
+      BMI: "Index tělesné hmotnosti (kg/m²)"
 
   6:
     name: "Skupina 6"
@@ -132,7 +197,7 @@ groups:
       MAP, kreatinin, teplota, věk...). Natrénujte model na každém datasetu
       a zjistěte, který model lépe predikuje komplikovaný průběh.
     target_column: "SepsisLabel"
-    correct_dataset: "B"
+    correct_dataset: "C"
     positive_label: "Komplikovaný průběh"
     negative_label: "Nekomplikovaný průběh"
     display_columns: ["vek", "SOFA", "Laktat", "MAP", "Kreatinin", "Temp", "SpO2"]
@@ -149,6 +214,14 @@ groups:
       WBC: "Leukocyty (G/l)"
       Bilirubin: "Bilirubin (mg/dl)"
       SepsisLabel: "Těžký průběh"
+    column_descriptions:
+      vek: "Věk pacienta v letech"
+      SOFA: "Sequential Organ Failure Assessment skóre (0–24) — míra selhání orgánů. Hodnota ≥ 2 = sepse."
+      Laktat: "Laktát v séru (mmol/l) — ukazatel tkáňové hypoxie. Hodnota > 2 mmol/l = varovný znak."
+      MAP: "Střední arteriální tlak (mmHg). Hodnota < 65 mmHg = septický šok."
+      Kreatinin: "Sérový kreatinin (mg/dl) — ukazatel funkce ledvin"
+      Temp: "Tělesná teplota (°C). Hypotermie (< 36 °C) i horečka jsou nepříznivé."
+      SpO2: "Saturace hemoglobinu kyslíkem měřená pulzní oxymetrií (%). Normální > 95 %."
 
 mlp:
   hidden_layer_sizes: [128, 64, 32]
@@ -157,5 +230,6 @@ mlp:
   early_stopping: true
   validation_fraction: 0.15
   n_iter_no_change: 60
-  epoch_delay: 0.3
+  epoch_delay: 0.2
   predict_delay: 1.2
+  predict_batches: 50

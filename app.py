@@ -9,9 +9,45 @@ import threading
 import warnings
 warnings.filterwarnings("ignore")
 
+import logging
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from sklearn.metrics import accuracy_score, confusion_matrix
 from ml.trainer import preprocess, build_mlp
+
+# ── Logging ───────────────────────────────────────────────────────────────────
+def _setup_logger():
+    log = logging.getLogger("seminar")
+    if log.handlers:
+        return log  # already configured
+
+    fmt_app = logging.Formatter("%(asctime)s  %(message)s",
+                                datefmt="%Y-%m-%d %H:%M:%S")
+    fmt_st  = logging.Formatter("%(asctime)s  [%(levelname)s] %(name)s  %(message)s",
+                                datefmt="%Y-%m-%d %H:%M:%S")
+
+    # Aplikační log (přihlášení, trénink, predikce) — soubor + konzole
+    fh_app = RotatingFileHandler("access.log", maxBytes=1_000_000, backupCount=3,
+                                 encoding="utf-8")
+    fh_app.setFormatter(fmt_app)
+    ch = logging.StreamHandler()
+    ch.setFormatter(fmt_app)
+    log.setLevel(logging.INFO)
+    log.addHandler(fh_app)
+    log.addHandler(ch)
+
+    # Streamlit systémový log (WARNING+) — připojení, chyby, odpojení
+    fh_st = RotatingFileHandler("streamlit.log", maxBytes=1_000_000, backupCount=3,
+                                encoding="utf-8")
+    fh_st.setFormatter(fmt_st)
+    fh_st.setLevel(logging.WARNING)
+    for name in ("streamlit", "streamlit.runtime", "tornado.access"):
+        l = logging.getLogger(name)
+        l.addHandler(fh_st)
+
+    return log
+
+log = _setup_logger()
 
 st.set_page_config(
     page_title="AI v medicíně – Seminář",
@@ -93,21 +129,37 @@ def plot_loss(history):
     return fig
 
 
-def plot_comparison(acc_a, acc_b):
-    colors = ["#1565C0" if acc_a >= acc_b else "#90CAF9",
-              "#1565C0" if acc_b > acc_a else "#90CAF9"]
+def plot_comparison(results: dict, baseline: float = None):
+    """results = {"A": accuracy, ...}; baseline = přesnost naivního modelu."""
+    letters = sorted(results.keys())
+    accs = [results[l] for l in letters]
+    best = max(accs)
+    colors = ["#1565C0" if a == best else "#90CAF9" for a in accs]
     fig = go.Figure(go.Bar(
-        x=["Dataset A", "Dataset B"],
-        y=[round(acc_a * 100, 1), round(acc_b * 100, 1)],
-        text=[f"{acc_a:.1%}", f"{acc_b:.1%}"],
+        x=[f"Dataset {l}" for l in letters],
+        y=[round(a * 100, 1) for a in accs],
+        text=[f"{a:.1%}" for a in accs],
         textposition="outside",
         marker_color=colors,
     ))
+    if baseline is not None:
+        fig.add_hline(
+            y=baseline * 100,
+            line_dash="dash", line_color="#e53935",
+            annotation_text=f"Náhodný model: {baseline:.1%}",
+            annotation_position="top right",
+        )
     fig.update_layout(
         yaxis_title="Přesnost (%)", yaxis_range=[0, 105],
         height=300, margin=dict(l=0, r=0, t=10, b=0),
     )
     return fig
+
+
+def majority_baseline(cm):
+    """Přesnost naivního modelu 'vždy hádej většinovou třídu'."""
+    total = sum(sum(row) for row in cm)
+    return max(cm[0][0] + cm[0][1], cm[1][0] + cm[1][1]) / total if total else 0
 
 
 def translate_cols(df, group):
@@ -129,11 +181,16 @@ def build_table(records, group, show_true):
 
 # ── Background training ───────────────────────────────────────────────────────
 
-def _training_worker(job_key, X_train_sc, y_train_enc, X_test_sc, y_test_enc,
-                     display_df, mlp_cfg):
+def _training_worker(job_key, run_id, X_train_sc, y_train_enc, X_test_sc,
+                     y_test_enc, display_df, mlp_cfg):
     max_epochs = mlp_cfg.get("max_iter", 400)
     n_iter_no_change = mlp_cfg.get("n_iter_no_change", 60)
     epoch_delay = mlp_cfg.get("epoch_delay", 0.3)
+
+    def still_mine():
+        """Vrátí False pokud byl job nahrazen novějším spuštěním nebo zrušen."""
+        j = _get_jobs().get(job_key, {})
+        return j.get("run_id") == run_id and not j.get("cancelled")
 
     mlp = build_mlp(mlp_cfg)
     history = []
@@ -144,7 +201,7 @@ def _training_worker(job_key, X_train_sc, y_train_enc, X_test_sc, y_test_enc,
 
     for epoch in range(1, max_epochs + 1):
         with _get_lock():
-            if _get_jobs().get(job_key, {}).get("cancelled"):
+            if not still_mine():
                 return
 
         mlp.fit(X_train_sc, y_train_enc)
@@ -159,6 +216,8 @@ def _training_worker(job_key, X_train_sc, y_train_enc, X_test_sc, y_test_enc,
         )
 
         with _get_lock():
+            if not still_mine():
+                return
             _get_jobs()[job_key].update({
                 "epoch": epoch,
                 "loss": loss,
@@ -180,6 +239,9 @@ def _training_worker(job_key, X_train_sc, y_train_enc, X_test_sc, y_test_enc,
                   f"  Přesnost na trénovacích datech: {final_acc:.1%}"]
 
     with _get_lock():
+        if not still_mine():
+            return
+        log.info(f"TRÉNINK HOTOV  job={job_key}  průchodů={final_epoch}  přesnost={final_acc:.1%}")
         _get_jobs()[job_key].update({
             "running": False,
             "done": True,
@@ -198,8 +260,14 @@ def _training_worker(job_key, X_train_sc, y_train_enc, X_test_sc, y_test_enc,
 def run_training(ds, data_path, group, mlp_cfg):
     session_id = get_session_id()
     job_key = f"{session_id}_{ds}"
+    run_id = str(uuid.uuid4())
     display_cols = group.get("display_columns")
     target_col = group["target_column"]
+
+    # Zruš případné starší vlákno se stejným klíčem
+    with _get_lock():
+        if job_key in _get_jobs():
+            _get_jobs()[job_key]["cancelled"] = True
 
     with st.spinner("Načítám a připravuji data..."):
         X_train_sc, y_train_enc, X_test_sc, y_test_enc, display_df = preprocess(
@@ -211,26 +279,36 @@ def run_training(ds, data_path, group, mlp_cfg):
 
     with _get_lock():
         _get_jobs()[job_key] = {
+            "run_id": run_id,
             "running": True, "done": False, "cancelled": False,
             "epoch": 0, "loss": None,
             "max_epochs": mlp_cfg.get("max_iter", 400),
             "n_train": len(y_train_enc), "n_test": len(y_test_enc),
             "history": [], "log_lines": ["Spouštím trénink...", ""],
+            "created_at": time.time(),
         }
 
+    log.info(f"TRÉNINK  skupina={st.session_state.get('group_id', '?')}  dataset={ds}")
     st.session_state[f"training_job_{ds.lower()}"] = job_key
 
     threading.Thread(
         target=_training_worker,
-        args=(job_key, X_train_sc, y_train_enc, X_test_sc, y_test_enc,
+        args=(job_key, run_id, X_train_sc, y_train_enc, X_test_sc, y_test_enc,
               display_df, mlp_cfg),
         daemon=True,
     ).start()
 
 
 def _collect_done_jobs():
-    """Přesune dokončené background joby do session_state."""
-    for ds_check in ["A", "B"]:
+    """Přesune dokončené joby do session_state; smaže joby starší 30 minut."""
+    now = time.time()
+    with _get_lock():
+        stale = [k for k, j in _get_jobs().items()
+                 if now - j.get("created_at", now) > 1800]
+        for k in stale:
+            _get_jobs().pop(k, None)
+
+    for ds_check in ["A", "B", "C", "D"]:
         job_key = st.session_state.get(f"training_job_{ds_check.lower()}")
         if not job_key:
             continue
@@ -278,7 +356,7 @@ def show_training_fragment(ds):
         st.code(fixed_log(log_lines), language=None)
     with col_chart:
         if history:
-            st.plotly_chart(plot_loss(history), use_container_width=True,
+            st.plotly_chart(plot_loss(history), width='stretch',
                             key=str(uuid.uuid4()))
 
     if job.get("running"):
@@ -303,8 +381,9 @@ def predict_with_progress(model_data, group, result_key, mlp_cfg):
     pos_label = group["positive_label"]
     neg_label = group["negative_label"]
     predict_delay = mlp_cfg.get("predict_delay", 1.2)
+    predict_batches = mlp_cfg.get("predict_batches", 25)
 
-    batch_size = max(10, n_test // 25)
+    batch_size = max(10, n_test // predict_batches)
 
     col_log, col_chart = st.columns([1, 1])
     log_ph = col_log.empty()
@@ -344,7 +423,7 @@ def predict_with_progress(model_data, group, result_key, mlp_cfg):
             yaxis_range=[0, 100], height=280,
             margin=dict(l=0, r=0, t=10, b=0), showlegend=False,
         )
-        chart_ph.plotly_chart(fig, use_container_width=True, key=str(uuid.uuid4()))
+        chart_ph.plotly_chart(fig, width='stretch', key=str(uuid.uuid4()))
         progress_ph.progress(end / n_test, f"Predikuji... {end}/{n_test} pacientů")
 
     y_pred = np.array(all_preds)
@@ -363,8 +442,10 @@ def predict_with_progress(model_data, group, result_key, mlp_cfg):
     table_df["__prob__"] = (y_prob * 100).round(1)
     table_df["__true__"] = y_test_enc
 
+    acc = float(accuracy_score(y_test_enc, y_pred))
+    log.info(f"PREDIKCE  key={result_key}  přesnost={acc:.1%}")
     st.session_state[result_key] = {
-        "accuracy": float(accuracy_score(y_test_enc, y_pred)),
+        "accuracy": acc,
         "confusion_matrix": cm,
         "n_test": n_test,
         "table": table_df.to_dict("records"),
@@ -391,10 +472,10 @@ def render_krok3(trained_ds, group, neg_label, pos_label, mlp_cfg):
             "Kliknutím mu je předložte a sledujte, jak je klasifikuje."
         )
         st.dataframe(translate_cols(m["display_df"], group),
-                     use_container_width=True, height=300)
+                     width='stretch', height=300)
 
         if st.button(f"🔬 Předhodit modelu testovací data (Dataset {trained_ds})",
-                     use_container_width=True, key=f"predict_btn_{trained_ds}"):
+                     width='stretch', key=f"predict_btn_{trained_ds}"):
             predict_with_progress(m, group, result_key, mlp_cfg)
             st.session_state[f"show_true_{trained_ds.lower()}"] = False
             st.rerun()
@@ -421,20 +502,26 @@ def render_krok3(trained_ds, group, neg_label, pos_label, mlp_cfg):
                 yaxis_range=[0, 100], height=280,
                 margin=dict(l=0, r=0, t=10, b=0), showlegend=False,
             )
-            st.plotly_chart(fig, use_container_width=True,
+            st.plotly_chart(fig, width='stretch',
                             key=f"pred_saved_{trained_ds}")
 
         with st.expander("Matice záměn"):
             st.plotly_chart(
                 plot_confusion_matrix(res["confusion_matrix"], neg_label, pos_label),
-                use_container_width=True, key=f"cm_{trained_ds}",
+                width='stretch', key=f"cm_{trained_ds}",
+            )
+            st.caption(
+                f"**SP** (správně pozitivní / TP): model správně predikoval *{pos_label}* · "
+                f"**SN** (správně negativní / TN): model správně predikoval *{neg_label}* · "
+                f"**FP** (falešný poplach): predikoval *{pos_label}*, ale skutečnost byla *{neg_label}* · "
+                f"**FN** (přehlédnutý případ): predikoval *{neg_label}*, ale skutečnost byla *{pos_label}*"
             )
 
         show_true = st.session_state.get(f"show_true_{trained_ds.lower()}", False)
         table_df = translate_cols(build_table(res["table"], group, show_true), group)
 
         st.dataframe(
-            table_df, use_container_width=True, height=440,
+            table_df, width='stretch', height=440,
             column_config={
                 "Jistota (%)": st.column_config.ProgressColumn(
                     "Jistota (%)", min_value=0, max_value=100, format="%.1f%%"
@@ -463,16 +550,19 @@ def render_login(settings):
         st.subheader("Přihlášení skupiny")
         with st.form("login_form"):
             pwd = st.text_input("Zadejte heslo vaší skupiny:")
-            submitted = st.form_submit_button("Přihlásit se", use_container_width=True)
+            submitted = st.form_submit_button("Přihlásit se", width='stretch')
         if submitted:
             for gid, grp in settings["groups"].items():
                 if pwd == grp["password"]:
+                    log.info(f"LOGIN  skupina={gid}  {grp['topic']}")
                     st.session_state.group_id = gid
                     st.session_state.group = grp
                     st.rerun()
             if pwd == settings.get("admin_password"):
+                log.info("LOGIN  admin")
                 st.session_state.is_admin = True
                 st.rerun()
+            log.info("LOGIN  FAIL")
             st.error("Nesprávné heslo.")
 
 
@@ -526,8 +616,17 @@ def render_dashboard(settings):
         st.markdown(f"**Skupina {gid}** · {group['name']}")
         st.markdown(f"*{group['topic']}*")
         st.markdown("---")
-        if st.button("Odhlásit se"):
+        if st.button("🔄 Začít znovu", width='stretch'):
+            reset_keys = [k for k in st.session_state
+                          if any(k.startswith(p) for p in
+                                 ["model_", "results_", "training_job_",
+                                  "show_true_", "dataset_choice"])]
+            for k in reset_keys:
+                del st.session_state[k]
+            st.rerun()
+        if st.button("Odhlásit se", width='stretch'):
             st.session_state.clear(); st.rerun()
+        st.caption("⚠️ Obnovení stránky (F5) smaže výsledky.")
 
     st.title(group["topic"])
     st.info(group["description"])
@@ -540,33 +639,26 @@ def render_dashboard(settings):
     st.markdown("---")
     st.header("Krok 1 – Prozkoumejte datasety")
     st.markdown(
-        "Stáhněte si oba trénovací datasety. "
-        "Oba mají **stejné proměnné** — nevíte, který má správné štítky."
+        "Všechny čtyři datasety mají **stejné proměnné** — nevíte, který má správné štítky."
     )
 
-    df_a = pd.read_csv(data_path / "dataset_A.csv")
-    df_b = pd.read_csv(data_path / "dataset_B.csv")
+    all_ds = ["A", "B", "C", "D"]
+    ds_files = {d: pd.read_csv(data_path / f"dataset_{d}.csv") for d in all_ds}
 
-    col1, col2 = st.columns(2)
-    with col1:
-        st.download_button("⬇️ Stáhnout Dataset A",
-                           df_a.to_csv(index=False).encode("utf-8"),
-                           "dataset_A.csv", "text/csv",
-                           use_container_width=True, key="dl_a")
-        st.caption(f"{len(df_a)} záznamů · {len(df_a.columns)} proměnných")
-    with col2:
-        st.download_button("⬇️ Stáhnout Dataset B",
-                           df_b.to_csv(index=False).encode("utf-8"),
-                           "dataset_B.csv", "text/csv",
-                           use_container_width=True, key="dl_b")
-        st.caption(f"{len(df_b)} záznamů · {len(df_b.columns)} proměnných")
+    tabs = st.tabs([f"Dataset {d}  ({len(ds_files[d])} záznamů)" for d in all_ds])
+    for tab, d in zip(tabs, all_ds):
+        with tab:
+            st.dataframe(translate_cols(ds_files[d].head(15), group),
+                         width='stretch')
 
-    with st.expander("🔍 Náhled dat (prvních 15 řádků)"):
-        tab_a, tab_b = st.tabs(["Dataset A", "Dataset B"])
-        with tab_a:
-            st.dataframe(translate_cols(df_a.head(15), group), use_container_width=True)
-        with tab_b:
-            st.dataframe(translate_cols(df_b.head(15), group), use_container_width=True)
+    descs = group.get("column_descriptions")
+    if descs:
+        with st.expander("ℹ️ Popis proměnných"):
+            labels = group.get("column_labels", {})
+            rows = [{"Proměnná": labels.get(col, col), "Popis": desc}
+                    for col, desc in descs.items()]
+            st.dataframe(pd.DataFrame(rows), width='stretch',
+                         hide_index=True)
 
     # ── KROK 2 ────────────────────────────────────────────────────────────────
     st.markdown("---")
@@ -579,31 +671,31 @@ def render_dashboard(settings):
     model_key = f"model_{ds.lower()}"
     job_key_active = st.session_state.get(f"training_job_{ds.lower()}")
 
-    col_a, col_b = st.columns(2)
-    with col_a:
-        if st.button("Dataset A", use_container_width=True,
-                     type="primary" if ds == "A" else "secondary"):
-            st.session_state.dataset_choice = "A"
-            st.rerun()
-    with col_b:
-        if st.button("Dataset B", use_container_width=True,
-                     type="primary" if ds == "B" else "secondary"):
-            st.session_state.dataset_choice = "B"
-            st.rerun()
+    sel_cols = st.columns(4)
+    for col, d in zip(sel_cols, ["A", "B", "C", "D"]):
+        with col:
+            if st.button(f"Dataset {d}", width='stretch',
+                         type="primary" if ds == d else "secondary"):
+                st.session_state.dataset_choice = d
+                st.rerun()
 
-    # Indikátor tréninku na pozadí pro druhý dataset
-    other_ds = "B" if ds == "A" else "A"
-    other_job = st.session_state.get(f"training_job_{other_ds.lower()}")
-    if other_job and _get_jobs().get(other_job, {}).get("running"):
-        epoch_other = _get_jobs().get(other_job, {}).get("epoch", 0)
-        max_other = _get_jobs().get(other_job, {}).get("max_epochs", 400)
-        st.caption(f"⏳ Dataset {other_ds} se trénuje na pozadí "
-                   f"(průchod {epoch_other}/{max_other})")
+    # Indikátor tréninků na pozadí pro ostatní datasety
+    bg_msgs = []
+    for other in ["A", "B", "C", "D"]:
+        if other == ds:
+            continue
+        other_job = st.session_state.get(f"training_job_{other.lower()}")
+        if other_job and _get_jobs().get(other_job, {}).get("running"):
+            ep = _get_jobs().get(other_job, {}).get("epoch", 0)
+            mx = _get_jobs().get(other_job, {}).get("max_epochs", 400)
+            bg_msgs.append(f"Dataset {other} (průchod {ep}/{mx})")
+    if bg_msgs:
+        st.caption("⏳ Trénují se na pozadí: " + ", ".join(bg_msgs))
 
     # Tlačítko spustit trénink — skryj pokud právě běží
     if not job_key_active:
         if st.button(f"🧠 Natrénovat model na Dataset {ds}",
-                     use_container_width=True):
+                     width='stretch'):
             run_training(ds, data_path, group, mlp_cfg)
             st.rerun()
 
@@ -618,7 +710,7 @@ def render_dashboard(settings):
             st.markdown(EXPLANATION_TEXT)
             st.code(fixed_log(m["log_lines"]), language=None)
         with col_chart:
-            st.plotly_chart(plot_loss(m["history"]), use_container_width=True,
+            st.plotly_chart(plot_loss(m["history"]), width='stretch',
                             key=f"train_saved_{ds}")
 
     elif job_key_active:
@@ -630,34 +722,48 @@ def render_dashboard(settings):
         render_krok3(ds, group, neg_label, pos_label, mlp_cfg)
 
     # ── KROK 4 ────────────────────────────────────────────────────────────────
-    if "results_a" in st.session_state and "results_b" in st.session_state:
+    done_results = {d: st.session_state[f"results_{d.lower()}"]["accuracy"]
+                    for d in ["A", "B", "C", "D"]
+                    if f"results_{d.lower()}" in st.session_state}
+
+    if len(done_results) >= 2:
         st.markdown("---")
-        st.header("Krok 4 – Porovnání modelů a závěr")
+        tested = sorted(done_results.keys())
+        all_done = len(done_results) == 4
+        st.header("Krok 4 – Porovnání modelů" + (" a závěr" if all_done else ""))
 
-        ra = st.session_state["results_a"]["accuracy"]
-        rb = st.session_state["results_b"]["accuracy"]
-        better = "A" if ra >= rb else "B"
-        worse = "B" if better == "A" else "A"
+        first_cm = st.session_state[
+            f"results_{tested[0].lower()}"
+        ]["confusion_matrix"]
+        baseline = majority_baseline(first_cm)
+        st.plotly_chart(plot_comparison(done_results, baseline),
+                        width='stretch', key="comparison")
 
-        st.plotly_chart(plot_comparison(ra, rb), use_container_width=True,
-                        key="comparison")
-        st.success(
-            f"**Model {better}** dosáhl přesnosti **{max(ra, rb):.1%}**, "
-            f"zatímce Model {worse} pouze **{min(ra, rb):.1%}**. "
-            "Který dataset byl tedy správně označen?"
-        )
-
-        with st.expander("🔍 Zobrazit správnou odpověď (až po skupinové diskuzi!)"):
-            correct = group["correct_dataset"]
-            wrong = "B" if correct == "A" else "A"
-            st.markdown(f"### ✅ Správný dataset byl: **Dataset {correct}**")
-            st.markdown(
-                f"Dataset **{wrong}** měl **náhodně přeházené diagnózy** — "
-                "každý pacient dostal náhodnou diagnózu bez ohledu na svůj zdravotní stav.\n\n"
-                "Neuronová síť se na takovém datasetu nenaučila žádný smysluplný vzor. "
-                "Proto její predikce jsou téměř náhodné.\n\n"
-                "> **AI model je jen tak dobrý, jako data, na kterých byl naučen.**"
+        best_ds = max(done_results, key=done_results.get)
+        best_acc = done_results[best_ds]
+        if not all_done:
+            remaining = [d for d in ["A", "B", "C", "D"] if d not in done_results]
+            st.info(f"Zatím otestováno {len(done_results)}/4 modelů. "
+                    f"Zbývá: Dataset {', '.join(remaining)}.")
+        else:
+            others = {d: a for d, a in done_results.items() if d != best_ds}
+            worst_ds = min(others, key=others.get)
+            st.success(
+                f"**Model {best_ds}** dosáhl nejvyšší přesnosti **{best_acc:.1%}**. "
+                "Který dataset byl tedy správně označen?"
             )
+
+            with st.expander("🔍 Zobrazit správnou odpověď (až po skupinové diskuzi!)"):
+                correct = group["correct_dataset"]
+                wrongs = [d for d in ["A", "B", "C", "D"] if d != correct]
+                st.markdown(f"### ✅ Správný dataset byl: **Dataset {correct}**")
+                st.markdown(
+                    f"Ostatní datasety (**{', '.join(wrongs)}**) měly různě pokazené štítky:\n\n"
+                    "- **Přeházené** — náhodný shuffle všech štítků → model se nic nenaučí\n"
+                    "- **Invertované** — každý štítek překlopený (0↔1) → model se naučí opak\n"
+                    "- **Částečně pokazené** — 30 % štítků náhodně překlopeno → model se naučí jen část\n\n"
+                    "> **AI model je jen tak dobrý, jako data, na kterých byl naučen.**"
+                )
 
 
 # ── Footer ────────────────────────────────────────────────────────────────────

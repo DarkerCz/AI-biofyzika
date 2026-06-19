@@ -39,9 +39,39 @@ def augment_dataset(df, target_col, target_n=3000, seed=42):
 
 
 def shuffle_labels(df, target_col, seed=42):
+    """Náhodně přeháže všechny štítky."""
     df2 = df.copy()
     df2[target_col] = df2[target_col].sample(frac=1, random_state=seed).values
     return df2
+
+
+def invert_labels(df, target_col):
+    """Invertuje všechny štítky (0↔1)."""
+    df2 = df.copy()
+    df2[target_col] = (1 - df2[target_col]).astype(df[target_col].dtype)
+    return df2
+
+
+def partial_shuffle_labels(df, target_col, fraction=0.3, seed=42):
+    """Náhodně překlopí zadaný podíl štítků."""
+    df2 = df.copy()
+    rng = np.random.default_rng(seed)
+    idx = rng.choice(len(df2), int(len(df2) * fraction), replace=False)
+    df2.iloc[idx, df2.columns.get_loc(target_col)] = (
+        1 - df2.iloc[idx][target_col]
+    ).astype(df[target_col].dtype)
+    return df2
+
+
+# Pořadí korupcí pro liché a sudé skupiny — aby si skupiny nemohly poradit
+_CORRUPTION_ORDER = {
+    1: ["shuffled", "inverted", "partial"],
+    2: ["inverted", "partial", "shuffled"],
+    3: ["partial", "shuffled", "inverted"],
+    4: ["shuffled", "partial", "inverted"],
+    5: ["inverted", "shuffled", "partial"],
+    6: ["partial", "inverted", "shuffled"],
+}
 
 
 def save_group_data(group_id, df, target_col, correct_dataset, seed=42):
@@ -56,20 +86,28 @@ def save_group_data(group_id, df, target_col, correct_dataset, seed=42):
         train_df, test_df = train_test_split(df, test_size=0.25, random_state=seed)
 
     correct_df = train_df.reset_index(drop=True)
-    corrupted_df = shuffle_labels(train_df, target_col, seed=seed).reset_index(drop=True)
+    corruption_fns = {
+        "shuffled": lambda d: shuffle_labels(d, target_col, seed=seed),
+        "inverted": lambda d: invert_labels(d, target_col),
+        "partial":  lambda d: partial_shuffle_labels(d, target_col, 0.3, seed=seed),
+    }
+    order = _CORRUPTION_ORDER.get(group_id, ["shuffled", "inverted", "partial"])
+    corrupted = [corruption_fns[k](train_df).reset_index(drop=True) for k in order]
 
-    if correct_dataset == "A":
-        dataset_a, dataset_b = correct_df, corrupted_df
-    else:
-        dataset_a, dataset_b = corrupted_df, correct_df
+    all_letters = ["A", "B", "C", "D"]
+    wrong_letters = [l for l in all_letters if l != correct_dataset]
+    datasets = {correct_dataset: correct_df}
+    for letter, df_corrupt in zip(wrong_letters, corrupted):
+        datasets[letter] = df_corrupt
 
-    dataset_a.to_csv(path / "dataset_A.csv", index=False)
-    dataset_b.to_csv(path / "dataset_B.csv", index=False)
+    for letter in all_letters:
+        datasets[letter].to_csv(path / f"dataset_{letter}.csv", index=False)
     test_df.reset_index(drop=True).to_csv(path / "test.csv", index=False)
 
     pos_rate = df[target_col].mean()
     print(f"  Skupina {group_id}: {len(train_df)} trénovací, "
-          f"{len(test_df)} testovací, {pos_rate:.1%} pozitivních")
+          f"{len(test_df)} testovací, {pos_rate:.1%} pozitivních, "
+          f"správný={correct_dataset}")
 
 
 # ── Group 1: Heart Disease ────────────────────────────────────────────────────
