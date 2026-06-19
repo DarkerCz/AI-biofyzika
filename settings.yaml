@@ -1,0 +1,161 @@
+admin_password: "YouShallNotPass"
+
+groups:
+  1:
+    name: "Skupina 1"
+    password: "srdce"
+    topic: "Diagnostika srdeční choroby"
+    description: >
+      Máte k dispozici klinická data pacientů (věk, pohlaví, typ bolesti na hrudi,
+      cholesterol, tepová frekvence...). Natrénujte model na každém datasetu,
+      předložte mu testovací pacienty a zjistěte, který model dává smysluplné předpovědi.
+    target_column: "target"
+    correct_dataset: "B"
+    positive_label: "S chorobou"
+    negative_label: "Bez choroby"
+    display_columns: ["age", "sex", "cp", "trestbps", "chol", "thalach", "exang"]
+    column_labels:
+      age: "Věk"
+      sex: "Pohlaví (0=žena, 1=muž)"
+      cp: "Typ bolesti na hrudi (1–4)"
+      trestbps: "Klidový TK (mmHg)"
+      chol: "Cholesterol (mg/dl)"
+      thalach: "Max. tepová frekvence"
+      exang: "Angina při zátěži"
+      target: "Srdeční choroba"
+
+  2:
+    name: "Skupina 2"
+    password: "cukr"
+    topic: "Diagnostika diabetu"
+    description: >
+      Máte k dispozici biochemická data pacientek (glukóza, BMI, inzulin,
+      krevní tlak, věk...). Natrénujte model na každém datasetu, předložte mu
+      testovací pacientky a zjistěte, který model dává smysluplné předpovědi.
+    target_column: "Outcome"
+    correct_dataset: "A"
+    positive_label: "Diabetes"
+    negative_label: "Bez diabetu"
+    display_columns: ["Age", "Glucose", "BMI", "BloodPressure", "Insulin", "Pregnancies"]
+    column_labels:
+      Age: "Věk"
+      Glucose: "Glukóza (mg/dl)"
+      BMI: "BMI"
+      BloodPressure: "Diastolický TK (mmHg)"
+      Insulin: "Inzulin (μU/ml)"
+      Pregnancies: "Počet těhotenství"
+      DiabetesPedigreeFunction: "Dědičné riziko"
+      Outcome: "Diabetes"
+
+  3:
+    name: "Skupina 3"
+    password: "prsa"
+    topic: "Diagnostika rakoviny prsu"
+    description: >
+      Máte k dispozici parametry biopsie nádoru (průměrný poloměr, textura,
+      obvod, plocha, hladkost...). Natrénujte model na každém datasetu,
+      předložte mu testovací vzorky a zjistěte, který model dává smysluplné předpovědi.
+    target_column: "diagnosis"
+    correct_dataset: "A"
+    positive_label: "Maligní"
+    negative_label: "Benigní"
+    display_columns: ["mean radius", "mean texture", "mean perimeter", "mean area", "mean smoothness"]
+    column_labels:
+      "mean radius": "Průměrný poloměr (mm)"
+      "mean texture": "Průměrná textura"
+      "mean perimeter": "Průměrný obvod (mm)"
+      "mean area": "Průměrná plocha (mm²)"
+      "mean smoothness": "Průměrná hladkost"
+      "mean compactness": "Kompaktnost"
+      "mean concavity": "Konkavita"
+      diagnosis: "Diagnóza"
+
+  4:
+    name: "Skupina 4"
+    password: "infarkt"
+    topic: "Prognóza přežití po srdečním selhání"
+    description: >
+      Máte k dispozici klinická data pacientů se srdečním selháním (ejekční frakce,
+      hladina kreatininu, věk, sodík, čas sledování...). Natrénujte model na každém
+      datasetu a zjistěte, který model lépe predikuje mortalitu.
+    target_column: "DEATH_EVENT"
+    correct_dataset: "A"
+    positive_label: "Zemřel"
+    negative_label: "Přežil"
+    display_columns: ["age", "ejection_fraction", "serum_creatinine", "serum_sodium", "time", "diabetes"]
+    column_labels:
+      age: "Věk"
+      ejection_fraction: "Ejekční frakce (%)"
+      serum_creatinine: "Sérový kreatinin (mg/dl)"
+      serum_sodium: "Sérový sodík (mEq/l)"
+      time: "Doba sledování (dny)"
+      diabetes: "Diabetes"
+      anaemia: "Anémie"
+      high_blood_pressure: "Hypertenze"
+      creatinine_phosphokinase: "Kreatinkináza (U/l)"
+      platelets: "Trombocyty (k/μl)"
+      sex: "Pohlaví"
+      smoking: "Kuřák"
+      DEATH_EVENT: "Exitus"
+
+  5:
+    name: "Skupina 5"
+    password: "nemocnice"
+    topic: "Prognóza readmise do nemocnice"
+    description: >
+      Máte k dispozici data o propuštěných diabetických pacientech (délka hospitalizace,
+      HbA1c, počet urgentních příjmů, glukóza, kreatinin...). Natrénujte model na každém
+      datasetu a zjistěte, který model lépe predikuje readmisi do 30 dnů.
+    target_column: "readmitted_30"
+    correct_dataset: "A"
+    positive_label: "Readmitován"
+    negative_label: "Nereadmitován"
+    display_columns: ["vek", "delka_hospitalizace", "HbA1c", "pocet_urgentni_prijmu", "glukoza", "BMI"]
+    column_labels:
+      vek: "Věk"
+      delka_hospitalizace: "Délka hospitalizace (dny)"
+      HbA1c: "HbA1c (%)"
+      pocet_urgentni_prijmu: "Urgentní příjmy"
+      glukoza: "Glukóza (mg/dl)"
+      BMI: "BMI"
+      pocet_leku: "Počet léků"
+      pocet_diagnoz: "Počet diagnóz"
+      kreatinin: "Kreatinin (mg/dl)"
+      readmitted_30: "Readmise do 30 dní"
+
+  6:
+    name: "Skupina 6"
+    password: "sepse"
+    topic: "Prognóza těžkého průběhu sepse"
+    description: >
+      Máte k dispozici klinická data pacientů se sepsí (SOFA skóre, laktát,
+      MAP, kreatinin, teplota, věk...). Natrénujte model na každém datasetu
+      a zjistěte, který model lépe predikuje komplikovaný průběh.
+    target_column: "SepsisLabel"
+    correct_dataset: "B"
+    positive_label: "Komplikovaný průběh"
+    negative_label: "Nekomplikovaný průběh"
+    display_columns: ["vek", "SOFA", "Laktat", "MAP", "Kreatinin", "Temp", "SpO2"]
+    column_labels:
+      vek: "Věk"
+      SOFA: "SOFA skóre"
+      Laktat: "Laktát (mmol/l)"
+      MAP: "Střední art. tlak (mmHg)"
+      Kreatinin: "Kreatinin (mg/dl)"
+      Temp: "Teplota (°C)"
+      SpO2: "Saturace O₂ (%)"
+      SF: "Srdeční frekvence (/min)"
+      Resp: "Dechová frekvence (/min)"
+      WBC: "Leukocyty (G/l)"
+      Bilirubin: "Bilirubin (mg/dl)"
+      SepsisLabel: "Těžký průběh"
+
+mlp:
+  hidden_layer_sizes: [128, 64, 32]
+  max_iter: 400
+  random_state: 42
+  early_stopping: true
+  validation_fraction: 0.15
+  n_iter_no_change: 60
+  epoch_delay: 0.3
+  predict_delay: 1.2
