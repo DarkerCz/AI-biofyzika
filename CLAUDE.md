@@ -150,7 +150,7 @@ Predikce i tréninkový loop probíhají v `app.py`. Trénink v background threa
 
 ### Streamlit API konvence
 
-`width='stretch'` místo `use_container_width=True`, `width='content'` místo `use_container_width=False`.
+`width='stretch'` místo `use_container_width=True` platí pouze pro `st.dataframe()` a `st.button()`. Pro `st.plotly_chart()` použít `use_container_width=True` — `width='stretch'` se tam přeposílá jako Plotly config kwarg a způsobuje deprecation warning.
 
 ### Barevná tlačítka
 
