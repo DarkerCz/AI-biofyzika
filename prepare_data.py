@@ -113,21 +113,54 @@ def save_group_data(group_id, df, target_col, correct_dataset, seed=42):
 # ── Group 1: Heart Disease ────────────────────────────────────────────────────
 
 def prepare_group1():
-    print("Skupina 1: Srdeční choroba...")
-    cols = ["age", "sex", "cp", "trestbps", "chol", "fbs", "restecg",
-            "thalach", "exang", "oldpeak", "slope", "ca", "thal", "target"]
-    try:
-        from ucimlrepo import fetch_ucirepo
-        ds = fetch_ucirepo(id=45)
-        df = pd.concat([ds.data.features, ds.data.targets], axis=1)
-        df.columns = cols
-    except Exception:
-        url = ("https://archive.ics.uci.edu/ml/machine-learning-databases/"
-               "heart-disease/processed.cleveland.data")
-        df = pd.read_csv(url, header=None, names=cols, na_values="?")
+    """Fedesoriano (2021) — kombinace 5 UCI databází, 918 řádků."""
+    print("Skupina 1: Srdeční choroba (Fedesoriano 2021)...")
+
+    urls = [
+        "https://raw.githubusercontent.com/nickmcgreivy/heart-disease-ml/main/heart.csv",
+        "https://raw.githubusercontent.com/dsrscientist/dataset1/master/heart_failure_prediction.csv",
+    ]
+    df = None
+    for url in urls:
+        try:
+            df = pd.read_csv(url)
+            # Ověř, že jde o Fedesoriano dataset (má sloupec HeartDisease)
+            if "HeartDisease" in df.columns:
+                break
+            df = None
+        except Exception:
+            continue
+
+    if df is None or "HeartDisease" not in df.columns:
+        print("  Stažení selhalo, používám Cleveland fallback (přejmenované sloupce)...")
+        cols_old = ["Age", "Sex", "ChestPainType", "RestingBP", "Cholesterol",
+                    "FastingBS", "RestingECG", "MaxHR", "ExerciseAngina",
+                    "Oldpeak", "ST_Slope", "ca", "thal", "HeartDisease"]
+        try:
+            from ucimlrepo import fetch_ucirepo
+            ds = fetch_ucirepo(id=45)
+            df = pd.concat([ds.data.features, ds.data.targets], axis=1)
+            df.columns = cols_old
+        except Exception:
+            url_fallback = ("https://archive.ics.uci.edu/ml/machine-learning-databases/"
+                            "heart-disease/processed.cleveland.data")
+            df = pd.read_csv(url_fallback, header=None, names=cols_old, na_values="?")
+        df["HeartDisease"] = (df["HeartDisease"] > 0).astype(int)
+        # Odstraň sloupce bez ekvivalentu ve Fedesoriano schématu
+        df = df.drop(columns=["ca", "thal"], errors="ignore")
+        df = df.dropna().reset_index(drop=True)
+        return augment_dataset(df, "HeartDisease"), "HeartDisease"
+
+    # Zakóduj kategoriální sloupce číselně
+    df["Sex"] = (df["Sex"] == "M").astype(int)
+    df["ExerciseAngina"] = (df["ExerciseAngina"] == "Y").astype(int)
+    df["ChestPainType"] = df["ChestPainType"].map({"TA": 1, "ATA": 2, "NAP": 3, "ASY": 4})
+    df["RestingECG"] = df["RestingECG"].map({"Normal": 0, "ST": 1, "LVH": 2})
+    df["ST_Slope"] = df["ST_Slope"].map({"Up": 1, "Flat": 2, "Down": 3})
     df = df.dropna().reset_index(drop=True)
-    df["target"] = (df["target"] > 0).astype(int)
-    return augment_dataset(df, "target"), "target"
+
+    print(f"  Staženo {len(df)} řádků (Fedesoriano).")
+    return augment_dataset(df, "HeartDisease"), "HeartDisease"
 
 
 # ── Group 2: Diabetes ─────────────────────────────────────────────────────────

@@ -32,7 +32,7 @@ app.py              — hlavní Streamlit aplikace (veškerá UI logika)
 settings.yaml       — konfigurace skupin, hesel, MLP parametrů, překladů sloupců
 prepare_data.py     — stáhne/připraví datasety, augmentuje na 3000 řádků
 ml/trainer.py       — preprocess() + build_mlp()
-.streamlit/config.toml  — server na 0.0.0.0, enableCORS=false, headless=true
+.streamlit/config.toml  — server na 0.0.0.0, enableCORS=true, headless=true
 data/group{1-6}/
     dataset_A.csv   — trénovací data
     dataset_B.csv   — trénovací data
@@ -45,7 +45,7 @@ data/group{1-6}/
 
 | Skupina | Téma | Heslo | Správný dataset | Zdroj |
 |---------|------|-------|-----------------|-------|
-| 1 | Diagnostika srdeční choroby | `srdce` | **C** | UCI Heart Disease (id=45) |
+| 1 | Diagnostika srdeční choroby | `srdce` | **C** | Fedesoriano (2021) — 918 řádků, 11 features, target: `HeartDisease` |
 | 2 | Diagnostika diabetu | `cukr` | **D** | Pima Indians Diabetes (id=34) |
 | 3 | Diagnostika rakoviny prsu | `prsa` | **B** | sklearn breast_cancer |
 | 4 | Prognóza přežití po srdečním selhání | `infarkt` | **A** | UCI Heart Failure (id=519) |
@@ -70,7 +70,11 @@ Admin heslo: `YouShallNotPass` — admin tabulka zobrazuje hesla, správné data
 
 ## Datové soubory
 
-Skupiny 1–4 používají reálná UCI data augmentovaná Gaussovým šumem (5 % std na spojitých sloupcích) na 3 000 řádků. Skupiny 5–6 mají syntetická klinicky věrohodná data (3 000 řádků). Všechny skupiny: 2 250 trénovacích + 750 testovacích vzorků po splitu 75/25.
+Všechny skupiny: 2 250 trénovacích + 750 testovacích vzorků po splitu 75/25, augmentováno Gaussovým šumem (5 % std) na 3 000 řádků.
+
+- **Skupina 1**: Fedesoriano (2021) — 918 původních řádků. Kategoriální sloupce (Sex, ChestPainType, RestingECG, ExerciseAngina, ST_Slope) zakódovány číselně v `prepare_data.py`. Fallback: Cleveland UCI (id=45) s přejmenovanými sloupci na Fedesoriano schéma.
+- **Skupiny 2–4**: reálná UCI data.
+- **Skupiny 5–6**: syntetická klinicky věrohodná data.
 
 ## MLP konfigurace (settings.yaml)
 
@@ -113,16 +117,16 @@ mlp:
   - Zobrazuje se pouze pro aktuálně vybraný dataset.
 - **`plot_comparison(results: dict, baseline: float)`** — přijímá `{letter: accuracy}` a přidá červenou přerušovanou čáru "Náhodný model" na úrovni `baseline`. Barevně zvýrazní nejlepší model.
 - **`majority_baseline(cm)`** — z matice záměn spočítá přesnost naivního modelu vždy predikujícího většinovou třídu: `max(actual_neg, actual_pos) / total`.
-- **`translate_cols(df, group)`** — přejmenuje sloupce dle `column_labels` v settings.yaml.
+- **`translate_cols(df, group)`** — přejmenuje sloupce dle `column_labels` v settings.yaml. `column_labels` bylo odstraněno → funkce vrací df beze změny (anglické názvy).
 - **`build_table(records, group, show_true)`** — sestaví tabulku predikcí; `show_true` odhalí sloupec "Správná diagnóza".
 - **`render_admin(settings)`** — tabulka skupin s tlačítkem **Vstoupit** pro přímé přihlášení do skupiny bez zadání hesla. Kliknutí nastaví `group_id`/`group` do session_state a smaže `is_admin`.
 
 ### UI detaily
 
-- **Přihlášení**: `st.form("login_form")` + `st.form_submit_button` — Enter i kliknutí fungují. `st.text_input` bez `type="password"` — znaky viditelné, prohlížeč nenabídne uložení.
+- **Přihlášení**: `st.form("login_form")` + `st.form_submit_button` — Enter i kliknutí fungují. `st.text_input` bez `type="password"` — znaky viditelné, prohlížeč nenabídne uložení. Heslo se normalizuje přes `normalize_pwd()` (malá písmena + odstranění diakritiky pomocí `unicodedata`), takže `SRDCE`, `Srdce`, `srdcě` i `srdce` jsou ekvivalentní.
 - **Terminologie**: "Epocha" → **"Průchod"**, konzole zobrazuje `✓ Konvergováno v průchodu N.`
 - **Krok 1**: čtyři záložky (A–D) s prvními 15 řádky, bez tlačítek ke stažení. Expander **ℹ️ Popis proměnných** zobrazí klinické vysvětlení ze `column_descriptions` v `settings.yaml`.
-- **Krok 4**: průběžné porovnání od 2 modelů. `plot_comparison(results, baseline)` přidá červenou čáru "Náhodný model" (`majority_baseline(cm)`). Plná odpověď až po 4 modelech.
+- **Krok 4**: průběžné porovnání od 2 modelů. `plot_comparison(results, baseline)` přidá červenou čáru "Náhodný model" (`majority_baseline(cm)`) s popisem pod grafem. Plná odpověď až po 4 modelech — zobrazí přehled všech datasetů A–D s typem korupce ze `dataset_corruptions` v `settings.yaml`.
 
 ### Plotly grafy — unikátní klíče
 
@@ -148,9 +152,31 @@ Predikce i tréninkový loop probíhají v `app.py`. Trénink v background threa
 
 `width='stretch'` místo `use_container_width=True`, `width='content'` místo `use_container_width=False`.
 
-### Překlady sloupců
+### Barevná tlačítka
 
-Každá skupina má v `settings.yaml` klíč `column_labels` — slovník `{anglický_název: český_název_s_jednotkou}`. Překlady se aplikují v: náhledu datasetů (Krok 1), tabulce testovacích pacientů, tabulce predikcí.
+CSS injektováno jako konstanta `_BTN_CSS` na začátku `render_dashboard()`. Mechanismus: Streamlit 1.37+ přidává CSS třídu `st-key-{key}` na container každého widgetu s explicitním `key=`. Trénovací tlačítko má `key=f"train_btn_{ds}"` → třída `st-key-train_btn_A` atd. → zelená (#1b5e20). Predikční tlačítko má `key=f"predict_btn_{trained_ds}"` → teal (#006064).
+
+### Typy korupce datasetů
+
+Každá skupina má v `settings.yaml` klíč `dataset_corruptions` — mapování `{letter: typ}` kde typ je `correct`, `shuffled`, `inverted`, nebo `partial`. Zobrazuje se v expanderu správné odpovědi v Kroku 4. Hodnoty odpovídají `_CORRUPTION_ORDER` v `prepare_data.py` — při změně datasetů je nutné oba synchronizovat.
+
+### Popis proměnných a zdroj dat
+
+`column_labels` bylo odstraněno — sloupce jsou zobrazovány s původními anglickými názvy.
+
+`column_descriptions` v `settings.yaml` pokrývá **všechny sloupce** každé skupiny. Formát: `anglický_název: "český popis — English description"`. Zobrazuje se v expanderu **ℹ️ Popis proměnných** v Kroku 1. Krok 1 zobrazuje prvních 100 řádků s poznámkou "pouze náhled".
+
+`data_source` — citace s URL + inline HTML download link (base64 data URL) správného datasetu ve formátu `Data ke stažení: dataset.csv ⬇️`.
+
+Zdroje dat:
+| Skupina | Citace |
+|---------|--------|
+| 1 | Fedesoriano (2021). Heart Failure Prediction. Kaggle. https://www.kaggle.com/datasets/fedesoriano/heart-failure-prediction — kombinace 5 UCI databází, 918 řádků, sloupce Fedesoriano schématu (Age, Sex, ChestPainType, RestingBP, Cholesterol, FastingBS, RestingECG, MaxHR, ExerciseAngina, Oldpeak, ST_Slope, HeartDisease). Kategoriální sloupce zakódovány číselně v prepare_data.py. Fallback: Cleveland UCI (id=45) s přejmenovanými sloupci. |
+| 2 | Smith et al. (1988). Pima Indians Diabetes. https://www.kaggle.com/datasets/uciml/pima-indians-diabetes-database |
+| 3 | Street et al. (1993). Breast Cancer Wisconsin. UCI / sklearn. https://archive.ics.uci.edu/dataset/17 |
+| 4 | Chicco & Jurman (2020). UCI Heart Failure. https://archive.ics.uci.edu/dataset/519 |
+| 5 | Syntetická data — Strack et al. (2014). https://doi.org/10.1155/2014/781670 |
+| 6 | Syntetická data — Reyna et al. (2020). PhysioNet Challenge 2019. https://physionet.org/content/challenge-2019/ |
 
 ### Opravené bugy
 
@@ -159,7 +185,7 @@ Každá skupina má v `settings.yaml` klíč `column_labels` — slovník `{angl
 - **Epochy skáčou zpět (~80 průchodů)**: souběžná vlákna se stejným `job_key` závodila o zápis. Oprava: `run_id` (UUID) přiřazený každému spuštění; worker se ukončí, pokud `run_id` nesedí (`still_mine()`).
 - **Mizející Krok 3**: výsledky v session_state přežijí přepnutí datasetu a zobrazí se zpět.
 - **StreamlitDuplicateElementKey**: grafy v smyčkách dostávají `key=str(uuid.uuid4())`.
-- **WebSocket rejected**: `enableCORS = false` v `.streamlit/config.toml`.
+- **WebSocket rejected**: řešeno přes `enableCORS` v `.streamlit/config.toml` (aktuálně `true`).
 
 ## .streamlit/config.toml
 
@@ -168,7 +194,7 @@ Každá skupina má v `settings.yaml` klíč `column_labels` — slovník `{angl
 address = "0.0.0.0"
 port = 8501
 headless = true      # přeskočí výzvu k zadání emailu
-enableCORS = false   # nutné pro přístup přes reverse proxy / vlastní doménu
+enableCORS = true
 
 [browser]
 serverAddress = "biofyzika.valdauf.eu"
@@ -179,7 +205,8 @@ serverPort = 443
 
 - **Tlačítko "Začít znovu"** v sidebaru — smaže pouze tréninkové výsledky (`model_*`, `results_*`, `training_job_*`, `show_true_*`, `dataset_choice`), zachová přihlášení. Užitečné pokud student klikne špatně.
 - **Varování v sidebaru**: `⚠️ Obnovení stránky (F5) smaže výsledky.`
-- **Legenda matice záměn**: pod každou maticí je `st.caption` vysvětlující SP/SN/FP/FN v kontextu konkrétní diagnózy skupiny.
+- **Legenda matice záměn**: pod každou maticí je `st.caption` vysvětlující SP/SN/FP/FN v kontextu konkrétní diagnózy skupiny. Každá buňka zobrazuje počet i procento z celku (`120\n(48.0 %)`).
+- **Popis náhodného modelu**: pod grafem Kroku 4 je `st.caption` vysvětlující, že červená čára = model vždy predikující početnější třídu.
 - **TTL cleanup jobů**: `_collect_done_jobs()` maže joby starší 30 minut (`created_at` uložen při startu jobu). Brání hromadění dat z disconnectnutých sessionů.
 
 ## Logování přístupů

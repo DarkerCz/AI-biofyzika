@@ -6,10 +6,12 @@ import plotly.graph_objects as go
 import time
 import uuid
 import threading
+import base64
 import warnings
 warnings.filterwarnings("ignore")
 
 import logging
+import unicodedata
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from sklearn.metrics import accuracy_score, confusion_matrix
@@ -48,6 +50,13 @@ def _setup_logger():
     return log
 
 log = _setup_logger()
+
+
+def normalize_pwd(s: str) -> str:
+    """Malá písmena + odstranění diakritiky."""
+    s = s.lower()
+    s = unicodedata.normalize("NFD", s)
+    return "".join(c for c in s if unicodedata.category(c) != "Mn")
 
 st.set_page_config(
     page_title="AI v medicíně – Seminář",
@@ -103,14 +112,17 @@ def fixed_log(lines):
 
 def plot_confusion_matrix(cm, neg_label, pos_label):
     labels = [neg_label, pos_label]
+    total = sum(sum(row) for row in cm) or 1
+    text = [[f"{cm[i][j]}<br>({cm[i][j]/total*100:.1f} %)" for j in range(2)]
+            for i in range(2)]
     fig = go.Figure(go.Heatmap(
         z=cm,
         x=[f"Predikce: {l}" for l in labels],
         y=[f"Skutečně: {l}" for l in labels],
-        text=cm, texttemplate="%{text}",
+        text=text, texttemplate="%{text}",
         colorscale="Blues", showscale=False,
     ))
-    fig.update_layout(height=240, margin=dict(l=0, r=0, t=10, b=0))
+    fig.update_layout(height=260, margin=dict(l=0, r=0, t=10, b=0))
     return fig
 
 
@@ -154,6 +166,36 @@ def plot_comparison(results: dict, baseline: float = None):
         height=300, margin=dict(l=0, r=0, t=10, b=0),
     )
     return fig
+
+
+_BTN_CSS = """
+<style>
+/* Zelené tlačítko tréninku — cíleno přes st-key-train_btn_{ds} */
+.st-key-train_btn_A button, .st-key-train_btn_B button,
+.st-key-train_btn_C button, .st-key-train_btn_D button {
+    background-color: #1b5e20 !important;
+    color: white !important;
+    border-color: #1b5e20 !important;
+}
+.st-key-train_btn_A button:hover, .st-key-train_btn_B button:hover,
+.st-key-train_btn_C button:hover, .st-key-train_btn_D button:hover {
+    background-color: #2e7d32 !important;
+    border-color: #2e7d32 !important;
+}
+/* Teal tlačítko testování — cíleno přes st-key-predict_btn_{ds} */
+.st-key-predict_btn_A button, .st-key-predict_btn_B button,
+.st-key-predict_btn_C button, .st-key-predict_btn_D button {
+    background-color: #006064 !important;
+    color: white !important;
+    border-color: #006064 !important;
+}
+.st-key-predict_btn_A button:hover, .st-key-predict_btn_B button:hover,
+.st-key-predict_btn_C button:hover, .st-key-predict_btn_D button:hover {
+    background-color: #00838f !important;
+    border-color: #00838f !important;
+}
+</style>
+"""
 
 
 def majority_baseline(cm):
@@ -552,13 +594,14 @@ def render_login(settings):
             pwd = st.text_input("Zadejte heslo vaší skupiny:")
             submitted = st.form_submit_button("Přihlásit se", width='stretch')
         if submitted:
+            pwd_norm = normalize_pwd(pwd)
             for gid, grp in settings["groups"].items():
-                if pwd == grp["password"]:
+                if pwd_norm == normalize_pwd(grp["password"]):
                     log.info(f"LOGIN  skupina={gid}  {grp['topic']}")
                     st.session_state.group_id = gid
                     st.session_state.group = grp
                     st.rerun()
-            if pwd == settings.get("admin_password"):
+            if pwd_norm == normalize_pwd(settings.get("admin_password", "")):
                 log.info("LOGIN  admin")
                 st.session_state.is_admin = True
                 st.rerun()
@@ -628,6 +671,7 @@ def render_dashboard(settings):
             st.session_state.clear(); st.rerun()
         st.caption("⚠️ Obnovení stránky (F5) smaže výsledky.")
 
+    st.markdown(_BTN_CSS, unsafe_allow_html=True)
     st.title(group["topic"])
     st.info(group["description"])
 
@@ -645,20 +689,33 @@ def render_dashboard(settings):
     all_ds = ["A", "B", "C", "D"]
     ds_files = {d: pd.read_csv(data_path / f"dataset_{d}.csv") for d in all_ds}
 
-    tabs = st.tabs([f"Dataset {d}  ({len(ds_files[d])} záznamů)" for d in all_ds])
+    n_total = len(ds_files["A"])
+    tabs = st.tabs([f"Dataset {d}  ({n_total} záznamů)" for d in all_ds])
     for tab, d in zip(tabs, all_ds):
         with tab:
-            st.dataframe(translate_cols(ds_files[d].head(15), group),
+            st.dataframe(translate_cols(ds_files[d].head(100), group),
                          width='stretch')
+            st.caption(f"Zobrazeno prvních 100 z {n_total} záznamů — pouze náhled.")
+
+    data_source = group.get("data_source")
+    if data_source:
+        correct_ds = group["correct_dataset"]
+        csv_b64 = base64.b64encode(
+            ds_files[correct_ds].to_csv(index=False).encode("utf-8")
+        ).decode()
+        st.markdown(
+            f"Zdroj dat: {data_source}  \n"
+            f'Data ke stažení: <a href="data:text/csv;base64,{csv_b64}" '
+            f'download="dataset.csv">dataset.csv ⬇️</a>',
+            unsafe_allow_html=True,
+        )
 
     descs = group.get("column_descriptions")
     if descs:
         with st.expander("ℹ️ Popis proměnných"):
-            labels = group.get("column_labels", {})
-            rows = [{"Proměnná": labels.get(col, col), "Popis": desc}
+            rows = [{"Proměnná": col, "Popis": desc}
                     for col, desc in descs.items()]
-            st.dataframe(pd.DataFrame(rows), width='stretch',
-                         hide_index=True)
+            st.dataframe(pd.DataFrame(rows), width='stretch', hide_index=True)
 
     # ── KROK 2 ────────────────────────────────────────────────────────────────
     st.markdown("---")
@@ -695,7 +752,7 @@ def render_dashboard(settings):
     # Tlačítko spustit trénink — skryj pokud právě běží
     if not job_key_active:
         if st.button(f"🧠 Natrénovat model na Dataset {ds}",
-                     width='stretch'):
+                     width='stretch', key=f"train_btn_{ds}"):
             run_training(ds, data_path, group, mlp_cfg)
             st.rerun()
 
@@ -738,6 +795,11 @@ def render_dashboard(settings):
         baseline = majority_baseline(first_cm)
         st.plotly_chart(plot_comparison(done_results, baseline),
                         width='stretch', key="comparison")
+        st.caption(
+            f"Červená čára — **náhodný model** ({baseline:.1%}): model, který vždy "
+            f"předpovídá početnější diagnózu bez ohledu na data pacientů. "
+            f"Pokud váš model tuto hranici nepřekonává, je horší než prosté hádání."
+        )
 
         best_ds = max(done_results, key=done_results.get)
         best_acc = done_results[best_ds]
@@ -755,14 +817,21 @@ def render_dashboard(settings):
 
             with st.expander("🔍 Zobrazit správnou odpověď (až po skupinové diskuzi!)"):
                 correct = group["correct_dataset"]
-                wrongs = [d for d in ["A", "B", "C", "D"] if d != correct]
+                corruptions = group.get("dataset_corruptions", {})
+                labels = {
+                    "correct":  "✅ správná data",
+                    "shuffled": "🔀 přeházené štítky — náhodný shuffle, model se nic nenaučí",
+                    "inverted": "🔁 invertované štítky — každý 0↔1, model se naučí opak",
+                    "partial":  "⚠️ 30 % štítků překlopeno — model se naučil jen část vzorů",
+                }
                 st.markdown(f"### ✅ Správný dataset byl: **Dataset {correct}**")
+                st.markdown("**Přehled datasetů:**")
+                for ds_letter in ["A", "B", "C", "D"]:
+                    ctype = corruptions.get(ds_letter, "?")
+                    desc = labels.get(ctype, ctype)
+                    st.markdown(f"- **Dataset {ds_letter}**: {desc}")
                 st.markdown(
-                    f"Ostatní datasety (**{', '.join(wrongs)}**) měly různě pokazené štítky:\n\n"
-                    "- **Přeházené** — náhodný shuffle všech štítků → model se nic nenaučí\n"
-                    "- **Invertované** — každý štítek překlopený (0↔1) → model se naučí opak\n"
-                    "- **Částečně pokazené** — 30 % štítků náhodně překlopeno → model se naučí jen část\n\n"
-                    "> **AI model je jen tak dobrý, jako data, na kterých byl naučen.**"
+                    "\n> **AI model je jen tak dobrý, jako data, na kterých byl naučen.**"
                 )
 
 
