@@ -398,7 +398,7 @@ def show_training_fragment(ds):
         st.code(fixed_log(log_lines), language=None)
     with col_chart:
         if history:
-            st.plotly_chart(plot_loss(history), width='stretch',
+            st.plotly_chart(plot_loss(history), use_container_width=True,
                             key=str(uuid.uuid4()))
 
     if job.get("running"):
@@ -465,7 +465,7 @@ def predict_with_progress(model_data, group, result_key, mlp_cfg):
             yaxis_range=[0, 100], height=280,
             margin=dict(l=0, r=0, t=10, b=0), showlegend=False,
         )
-        chart_ph.plotly_chart(fig, width='stretch', key=str(uuid.uuid4()))
+        chart_ph.plotly_chart(fig, use_container_width=True, key=str(uuid.uuid4()))
         progress_ph.progress(end / n_test, f"Predikuji... {end}/{n_test} pacientů")
 
     y_pred = np.array(all_preds)
@@ -544,13 +544,13 @@ def render_krok3(trained_ds, group, neg_label, pos_label, mlp_cfg):
                 yaxis_range=[0, 100], height=280,
                 margin=dict(l=0, r=0, t=10, b=0), showlegend=False,
             )
-            st.plotly_chart(fig, width='stretch',
+            st.plotly_chart(fig, use_container_width=True,
                             key=f"pred_saved_{trained_ds}")
 
         with st.expander("Matice záměn"):
             st.plotly_chart(
                 plot_confusion_matrix(res["confusion_matrix"], neg_label, pos_label),
-                width='stretch', key=f"cm_{trained_ds}",
+                use_container_width=True, key=f"cm_{trained_ds}",
             )
             st.caption(
                 f"**SP** (správně pozitivní / TP): model správně predikoval *{pos_label}* · "
@@ -767,7 +767,7 @@ def render_dashboard(settings):
             st.markdown(EXPLANATION_TEXT)
             st.code(fixed_log(m["log_lines"]), language=None)
         with col_chart:
-            st.plotly_chart(plot_loss(m["history"]), width='stretch',
+            st.plotly_chart(plot_loss(m["history"]), use_container_width=True,
                             key=f"train_saved_{ds}")
 
     elif job_key_active:
@@ -794,7 +794,7 @@ def render_dashboard(settings):
         ]["confusion_matrix"]
         baseline = majority_baseline(first_cm)
         st.plotly_chart(plot_comparison(done_results, baseline),
-                        width='stretch', key="comparison")
+                        use_container_width=True, key="comparison")
         st.caption(
             f"Červená čára — **náhodný model** ({baseline:.1%}): model, který vždy "
             f"předpovídá početnější diagnózu bez ohledu na data pacientů. "
